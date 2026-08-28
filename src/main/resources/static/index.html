@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RecoverX</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane:          #f9f9f7;
+    --surface:        #fcfcfb;
+    --ink:            #0b0b0b;
+    --ink-2:          #52514e;
+    --muted:          #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #eb6834;
+    --good:           #0ca30c;
+    --critical:       #d03b3b;
+    --good-text:      #006300;
+    --track:          #e8e7e1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --plane:      #0d0d0d;
+      --surface:    #1a1a19;
+      --ink:        #ffffff;
+      --ink-2:      #c3c2b7;
+      --muted:      #898781;
+      --grid:       #2c2c2a;
+      --axis:       #383835;
+      --border:     rgba(255,255,255,0.10);
+      --series-1:   #3987e5;
+      --series-2:   #d95926;
+      --good:       #0ca30c;
+      --critical:   #d03b3b;
+      --good-text:  #0ca30c;
+      --track:      #2c2c2a;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #d95926;
+    --good: #0ca30c; --critical: #d03b3b; --good-text: #0ca30c; --track: #2c2c2a;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --plane: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e;
+    --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6; --series-2: #eb6834;
+    --good: #0ca30c; --critical: #d03b3b; --good-text: #006300; --track: #e8e7e1;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--plane);
+    color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 32px 24px 64px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  header { margin-bottom: 28px; display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+  #theme {
+    font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 999px; flex: none;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); cursor: pointer;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-2); font-size: 14px; margin: 0; }
+  .stamp { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+
+  h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); font-weight: 600; margin: 36px 0 14px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  /* ---- KPI row ---- */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .kpi .label { font-size: 12.5px; color: var(--ink-2); margin-bottom: 8px; }
+  .kpi .value { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+  .kpi .value.hero { font-size: 40px; }
+  .kpi .note { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .kpi.pass .value { color: var(--good-text); }
+  .kpi.fail .value { color: var(--critical); }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+  /* ---- meters ---- */
+  .meter { display: grid; grid-template-columns: 150px 1fr 150px; gap: 14px; align-items: center; padding: 9px 0; }
+  .meter + .meter { border-top: 1px solid var(--grid); }
+  .meter .name { font-size: 13.5px; color: var(--ink-2); }
+  .meter .name code { font-family: inherit; }
+  .track { position: relative; height: 16px; background: var(--track); border-radius: 4px; overflow: hidden; }
+  .fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--series-1); }
+  .fill.ctx { background: var(--muted); }
+  /* The oracle is a reference, not a strategy: hatched so it never reads as a
+     competing bar, and light enough to stay visible against the track. */
+  .fill.ceil {
+    background: repeating-linear-gradient(45deg,
+      var(--muted) 0 5px, transparent 5px 10px);
+  }
+  .meter .amt { text-align: right; font-size: 13.5px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .meter .amt span { color: var(--muted); display: block; font-size: 12px; }
+
+  /* ---- grouped bars ---- */
+  .reason { padding: 11px 0; }
+  .reason + .reason { border-top: 1px solid var(--grid); }
+  .reason .head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 7px; }
+  .reason .head b { font-weight: 600; }
+  .reason .head .ceil { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar { position: relative; height: 11px; background: var(--track); border-radius: 4px; margin-bottom: 3px; }
+  .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; display: block; }
+  .bar.s1 i { background: var(--series-1); }
+  .bar.s2 i { background: var(--series-2); }
+  .bar .lbl {
+    position: absolute; left: calc(var(--w) + 8px); top: 50%; transform: translateY(-50%);
+    font-size: 11.5px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  /* Past ~80% there is no room to the right; flip the label inside the mark.
+     Anchored to the fill's own right edge, not the track's - otherwise it lands on
+     the empty track, where white text is invisible on the light surface. */
+  .bar.inside .lbl {
+    left: auto; right: calc(100% - var(--w) + 8px); color: #fff;
+  }
+  .legend { display: flex; gap: 18px; margin-bottom: 12px; font-size: 12.5px; color: var(--ink-2); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--axis);
+    white-space: nowrap;
+  }
+  td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--ink-2); }
+  .why { color: var(--ink-2); max-width: 380px; }
+  .tag {
+    display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11.5px;
+    border: 1px solid var(--border); color: var(--ink-2); white-space: nowrap;
+  }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tabs button {
+    font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); cursor: pointer;
+  }
+  .tabs button[aria-pressed="true"] { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+
+  .empty { color: var(--muted); padding: 28px 0; }
+  .muted-cell { color: var(--muted); font-size: 12.5px; }
+  .foot { color: var(--muted); font-size: 12.5px; margin-top: 40px; line-height: 1.7; }
+  .foot code { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>RecoverX</h1>
+      <p class="sub">Autonomous failed-payment recovery &middot; Razorpay Buildathon, Track 03</p>
+      <p class="stamp" id="stamp">loading&hellip;</p>
+    </div>
+    <button id="theme" type="button">Theme</button>
+  </header>
+
+  <div id="app"></div>
+
+  <p class="foot">
+    Every figure on this page was written to disk by a run &mdash;
+    <code>eval/out/comparison.json</code> and <code>eval/out/arms/&lt;arm&gt;/ledger.jsonl</code>.
+    The dashboard renders those files and computes nothing of its own.
+  </p>
+</div>
+
+<script>
+const rs = p => "₹" + (p / 100).toLocaleString("en-IN", {maximumFractionDigits: 0});
+const pct = v => (v * 100).toFixed(1) + "%";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let summary = null;
+let currentArm = "recoverx-rules";
+
+async function load() {
+  summary = await (await fetch("/api/arms")).json();
+  if (!summary.arms || !summary.arms.length) {
+    document.getElementById("stamp").textContent = "";
+    document.getElementById("app").innerHTML =
+      '<div class="card empty">No run found. Generate a batch and compare the arms:<br><br>' +
+      '<span class="mono">java -jar target/recoverx-0.1.0.jar --generate --count=500 --seed=42 --out=data</span><br>' +
+      '<span class="mono">java -jar target/recoverx-0.1.0.jar --compare --data=data --out=eval/out</span></div>';
+    return;
+  }
+  document.getElementById("stamp").textContent =
+    summary.transactions + " transactions · run " + summary.generatedAt.replace("T", " ").slice(0, 16) + " UTC";
+  render();
+  loadLedger();
+  loadExceptions();
+}
+
+const armOf = name => summary.arms.find(a => a.arm === name);
+
+function render() {
+  const agent = armOf("recoverx-llm") || armOf("recoverx-rules");
+  const base = armOf("naive-hourly");
+  const lift = base && base.recoveredPaise > 0
+    ? (agent.recoveredPaise / base.recoveredPaise).toFixed(1) + "× the hourly retry cron"
+    : "";
+  const safe = agent.complianceViolations === 0 && agent.doubleCharges === 0;
+
+  document.getElementById("app").innerHTML = `
+    <div class="kpis">
+      <div class="kpi">
+        <div class="label">Net recovered</div>
+        <div class="value hero">${rs(agent.netPaise)}</div>
+        <div class="note">${esc(lift)}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Of the recoverable ceiling</div>
+        <div class="value">${pct(agent.recoveryRate)}</div>
+        <div class="note">${pct(agent.rateAgainstTotalFailed)} of all failed value</div>
+      </div>
+      <div class="kpi ${agent.complianceViolations === 0 ? "pass" : "fail"}">
+        <div class="label">Compliance violations</div>
+        <div class="value">${agent.complianceViolations}</div>
+        <div class="note">
+          <span class="badge"><span class="dot" style="background:var(--${agent.complianceViolations === 0 ? "good" : "critical"})"></span>
+          ${agent.complianceViolations === 0 ? "no blocked instrument was touched" : "a blocked instrument was re-presented"}</span>
+        </div>
+      </div>
+      <div class="kpi ${agent.doubleCharges === 0 ? "pass" : "fail"}">
+        <div class="label">Double charges</div>
+        <div class="value">${agent.doubleCharges}</div>
+        <div class="note">
+          <span class="badge"><span class="dot" style="background:var(--${agent.doubleCharges === 0 ? "good" : "critical"})"></span>
+          ${agent.doubleCharges === 0 ? "survived a mid-batch kill" : "a transaction was collected twice"}</span>
+        </div>
+      </div>
+    </div>
+
+    <h2>Recovered against the ceiling</h2>
+    <div class="card">
+      ${summary.arms.map(a => meter(a, agent.arm)).join("")}
+      <p class="stamp" style="margin-top:14px">
+        The track is the ${rs(summary.ceilingPaise)} that was recoverable by anyone.
+        The oracle reads the answer &mdash; it is the denominator, not a strategy.
+      </p>
+    </div>
+
+    <h2>Where the money comes from</h2>
+    <div class="card">
+      <div class="legend">
+        <span class="badge"><span class="dot" style="background:var(--series-1)"></span>${esc(agent.arm)}</span>
+        <span class="badge"><span class="dot" style="background:var(--series-2)"></span>naive-hourly</span>
+        <span class="badge"><span class="dot" style="background:var(--track)"></span>recoverable ceiling</span>
+      </div>
+      ${Object.entries(summary.ceilingByReason).map(([reason, ceil]) =>
+        reasonRow(reason, ceil, agent, base)).join("")}
+    </div>
+
+    <h2>What each strategy costs</h2>
+    <div class="card scroll">
+      <table>
+        <thead><tr>
+          <th>Arm</th><th class="num">Attempts</th><th class="num">Recoveries</th>
+          <th class="num">Net</th><th class="num">Violations</th>
+          <th class="num">Double charges</th><th class="num">Wasted</th><th class="num">Escalated</th>
+        </tr></thead>
+        <tbody>${summary.arms.map(a => `
+          <tr>
+            <td><span class="tag">${esc(a.arm)}</span></td>
+            <td class="num">${a.attempts}</td>
+            <td class="num">${a.successes}</td>
+            <td class="num">${rs(a.netPaise)}</td>
+            <td class="num" style="color:${a.complianceViolations ? "var(--critical)" : "var(--good-text)"}">${a.complianceViolations}</td>
+            <td class="num" style="color:${a.doubleCharges ? "var(--critical)" : "var(--good-text)"}">${a.doubleCharges}</td>
+            <td class="num">${a.wastedAttempts}</td>
+            <td class="num">${a.escalations}</td>
+          </tr>`).join("")}</tbody>
+      </table>
+      <p class="stamp" style="margin-top:14px">
+        Both baselines re-present every risk-blocked decline. That is not a bug in the
+        baseline &mdash; it is what having no classifier costs.
+      </p>
+    </div>
+
+    <h2>Audit trail</h2>
+    <div class="tabs" id="armTabs">
+      ${summary.arms.filter(a => a.arm.startsWith("recoverx")).map(a =>
+        `<button data-arm="${esc(a.arm)}" aria-pressed="${a.arm === currentArm}">${esc(a.arm)}</button>`).join("")}
+    </div>
+    <div class="card scroll" id="ledger"><p class="empty">loading&hellip;</p></div>
+
+    <h2>Exception queue</h2>
+    <div class="card scroll" id="exceptions"><p class="empty">loading&hellip;</p></div>
+  `;
+
+  document.querySelectorAll("#armTabs button").forEach(b =>
+    b.addEventListener("click", () => {
+      currentArm = b.dataset.arm;
+      document.querySelectorAll("#armTabs button").forEach(x =>
+        x.setAttribute("aria-pressed", String(x.dataset.arm === currentArm)));
+      loadLedger();
+      loadExceptions();
+    }));
+}
+
+function meter(a, agentArm) {
+  const w = Math.max(0, Math.min(100, a.recoveryRate * 100));
+  const cls = a.arm === agentArm ? "" : (a.arm === "oracle" ? " ceil" : " ctx");
+  return `<div class="meter">
+    <div class="name"><code>${esc(a.arm)}</code></div>
+    <div class="track"><div class="fill${cls}" style="width:${w}%"></div></div>
+    <div class="amt">${rs(a.recoveredPaise)}<span>${pct(a.recoveryRate)} of ceiling</span></div>
+  </div>`;
+}
+
+function reasonRow(reason, ceil, agent, base) {
+  const got = agent.recoveredByReason[reason] || 0;
+  const naive = base ? (base.recoveredByReason[reason] || 0) : 0;
+  const w1 = ceil ? (got / ceil) * 100 : 0;
+  const w2 = ceil ? (naive / ceil) * 100 : 0;
+  const flip = w => w > 80 ? " inside" : "";
+  return `<div class="reason">
+    <div class="head"><b>${esc(reason)}</b><span class="ceil">ceiling ${rs(ceil)}</span></div>
+    <div class="bar s1${flip(w1)}" style="--w:${w1}%"><i style="width:${w1}%"></i><span class="lbl">${rs(got)}</span></div>
+    <div class="bar s2${flip(w2)}" style="--w:${w2}%"><i style="width:${w2}%"></i><span class="lbl">${rs(naive)}</span></div>
+  </div>`;
+}
+
+async function loadLedger() {
+  const d = await (await fetch(`/api/ledger?arm=${encodeURIComponent(currentArm)}&limit=60`)).json();
+  const el = document.getElementById("ledger");
+  if (!el) return;
+  if (!d.rows.length) { el.innerHTML = '<p class="empty">No rows.</p>'; return; }
+  el.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>#</th><th>Transaction</th><th>Classified as</th><th class="num">Conf.</th>
+        <th>Action</th><th>Why the model said so</th><th>Gate</th><th>Idempotency key</th>
+      </tr></thead>
+      <tbody>${d.rows.map(r => `
+        <tr>
+          <td class="num">${r.sequence}</td>
+          <td class="mono">${esc(r.txnId)}</td>
+          <td>${r.reason && r.reason !== "null"
+                ? `<span class="tag">${esc(r.reason)}</span>`
+                : '<span class="muted-cell">no verdict</span>'}</td>
+          <td class="num">${r.confidence ? r.confidence.toFixed(2) : "—"}</td>
+          <td><span class="tag">${esc(r.action)}</span></td>
+          <td class="why">${esc(r.justification)}</td>
+          <td class="why">${esc(r.gateReason)}</td>
+          <td class="mono">${r.idempotencyKey ? esc(r.idempotencyKey).slice(0, 12) : "—"}</td>
+        </tr>`).join("")}</tbody>
+    </table>
+    <p class="stamp" style="margin-top:14px">Showing ${d.rows.length} of ${d.total} decision rows.
+    Every one carries the reason, the written justification, and the gate that allowed or blocked it.</p>`;
+}
+
+async function loadExceptions() {
+  const d = await (await fetch(`/api/exceptions?arm=${encodeURIComponent(currentArm)}`)).json();
+  const el = document.getElementById("exceptions");
+  if (!el) return;
+  if (!d.rows.length) { el.innerHTML = '<p class="empty">Nothing was escalated or stopped.</p>'; return; }
+
+  const grouped = {};
+  d.rows.forEach(r => (grouped[r.gateReason] = grouped[r.gateReason] || []).push(r));
+  el.innerHTML = `
+    <table>
+      <thead><tr><th>Why it was not automated</th><th class="num">Count</th><th>Action</th><th>Example</th></tr></thead>
+      <tbody>${Object.entries(grouped).sort((a, b) => b[1].length - a[1].length).map(([why, rows]) => `
+        <tr>
+          <td class="why">${esc(why)}</td>
+          <td class="num">${rows.length}</td>
+          <td><span class="tag">${esc(rows[0].action)}</span></td>
+          <td class="mono">${esc(rows[0].txnId)}</td>
+        </tr>`).join("")}</tbody>
+    </table>
+    <p class="stamp" style="margin-top:14px">${d.total} transactions were handed to a person or
+    deliberately left alone. This queue is the exception list, not a failure list.</p>`;
+}
+
+// Judges may watch in either mode, and the palette is validated for both.
+document.getElementById("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.getAttribute("data-theme") === "dark"
+    || (!root.hasAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
+  root.setAttribute("data-theme", dark ? "light" : "dark");
+});
+
+load();
+</script>
+</body>
+</html>
