@@ -82,7 +82,8 @@ Gate 2 runs **before** the confidence floor deliberately: a hesitant guess of
 | Arm | Net recovered | % of ceiling |
 |---|---:|---:|
 | `naive-hourly` — a merchant's retry cron | Rs 91,855 | 24.0% |
-| `recoverx-rules` | **Rs 329,665** | **86.3%** |
+| `recoverx-rules` | Rs 329,665 | 86.3% |
+| **`recoverx-llm`** — gemini-3.5-flash-lite | **Rs 339,897** | **89.0%** |
 | `oracle` — perfect knowledge | Rs 382,063 | 100.0% |
 
 Two things to say here, both of which pre-empt the obvious question:
@@ -153,10 +154,19 @@ response to a charge.
 
 Be specific about both — it is more convincing than a roadmap.
 
-- The rule classifier is blind on ~20% of wordings, and that blindness costs about
-  Rs 40,000 in this batch. The LLM arm is wired and cached; it needs an API key and a
-  re-run to fill its row. **Either answer is a finding** — if the model does not beat
-  a regex here, that is worth reporting too.
+- **The model and the regex are each perfect where the other is weak.** On the 104
+  novel wordings the regex scores 49% and the model scores 100% — it answered all 53
+  rows the regex declined, and got all 53 right. On the 396 documented rows the regex
+  is perfect and the model scores 92.7%. The production answer is a hybrid: take the
+  exact vendor-code match when there is one, send everything else to the model. The
+  routing threshold already exists, because the rule classifier returns 0.95 on a code
+  match and 0.75 on a keyword.
+- **A line in my own prompt cost Rs 5,576.** It says *"when the text could be read two
+  ways and one reading is RISK_BLOCKED, choose RISK_BLOCKED."* The error string
+  `U16 - risk threshold exceeded for VPA` contains "risk threshold", so the model
+  stopped 13 recoverable transactions. That is a safety instruction with a price tag,
+  and both halves belong on the slide: 13 transactions a compliance officer would
+  rather see stopped, and what the caution cost.
 - I found a stopping rule that was cancelling the recovery: a flat 7-day cutoff
   blocked 98 transactions, almost all insufficient funds — the largest and most
   recoverable bucket. It looked responsible and quietly deleted the biggest recovery
@@ -178,3 +188,5 @@ Worth writing down so they do not slip out under pressure:
   is real and test-mode only; the measured rupees come from the simulator, which is
   the only place a recovered rupee can actually be proven.
 - Do **not** present the naive-immediate row as *the* baseline.
+- Do **not** say the model beat the regex full stop. It lost on the documented slice,
+  and the interesting claim is the split, not a win.

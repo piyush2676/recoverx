@@ -230,3 +230,37 @@ candidate list is empty, or `finishReason` is anything but `STOP` - a truncated 
 safety-blocked completion included. The validator then declines every row in the batch
 and they go to a human. Throwing would have been louder; declining is correct, because
 the question "what did the model say" has no answer here.
+
+## The classifier comparison came out split, and the split is the finding
+
+On the 104 novel wordings the regex scores 49% and Gemini scores 100% - it answered
+all 53 rows the regex declined and got all 53 right. On the 396 documented rows the
+regex is perfect and the model scores 92.7%.
+
+Neither arm alone is the right production answer. The regex is exact on what it was
+written for and blind past it; the model is the reverse. The hybrid is to take an
+exact vendor-code match when there is one and send everything else to the model, and
+the routing threshold already exists because `RuleBasedClassifier` returns 0.95 on a
+code match and 0.75 on a keyword.
+
+Reporting only the headline (94.2% vs 89.4%) would have hidden that entirely.
+
+## A safety line in the prompt cost Rs 5,576, and it stays
+
+`ClassifierPrompt` tells the model that when a decline reads two ways and one reading
+is RISK_BLOCKED, choose RISK_BLOCKED. The error string
+`U16 - risk threshold exceeded for VPA` contains the words "risk threshold", so 13
+recoverable transactions were stopped as compliance holds. That is the entire
+`INVALID_VPA` gap between the two arms.
+
+The instruction is not being removed. A wrong RISK_BLOCKED costs one missed recovery;
+a missed one is a compliance breach, and that asymmetry is the reason the rule exists.
+What changes is that the cost is now measured and reported next to it.
+
+## The model arm escalates nothing, which is worth watching
+
+Coverage went from 89.4% to 100%: the confidence floor never fired, because the model
+never returned a confidence below 0.70. That is either good calibration or an
+unwillingness to admit doubt, and this batch cannot tell the two apart. A calibration
+check - are the 0.7-confidence answers actually right 70% of the time - is the obvious
+next measurement.

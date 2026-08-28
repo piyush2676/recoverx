@@ -146,15 +146,18 @@ public class GeminiClassifier implements FailureClassifier {
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 404) {
-                return recordTransportFailure(batch, "model \"" + model + "\" not found for this key. "
-                        + "List what your key can reach with: curl -H \"x-goog-api-key: $GEMINI_API_KEY\" "
-                        + "https://generativelanguage.googleapis.com/v1beta/models");
+                // Model ids get retired. Rather than leave the operator to go and find out
+                // which, ask the API what this key can actually reach and say so.
+                return recordTransportFailure(batch, "model \"" + model + "\" is not available to "
+                        + "this key (it may have been retired). Reachable models: " + availableModels()
+                        + ". Re-run with --model=<one of those>.");
             }
             if (response.statusCode() / 100 != 2) {
                 return recordTransportFailure(batch,
                         "HTTP " + response.statusCode() + ": " + firstLine(response.body()));
             }
 
+            apiCalls++;
             return parser.parse(extractText(response.body()), batch);
 
         } catch (IOException e) {
@@ -245,6 +248,45 @@ public class GeminiClassifier implements FailureClassifier {
             } catch (IOException e) {
                 System.err.println("  cache write failed for " + txn.txnId() + ": " + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Best-effort lookup of the models this key can use, for the 404 message. Failure
+     * here must not mask the original error, so anything unexpected returns a note
+     * rather than throwing.
+     */
+    private String availableModels() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(
+                            URI.create("https://generativelanguage.googleapis.com/v1beta/models"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("x-goog-api-key", apiKey)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) {
+                return "(could not list models: HTTP " + response.statusCode() + ")";
+            }
+
+            List<String> names = new ArrayList<>();
+            for (JsonNode entry : mapper.readTree(response.body()).path("models")) {
+                String name = entry.path("name").asText("").replace("models/", "");
+                // Only what this classifier can actually use.
+                boolean generates = false;
+                for (JsonNode method : entry.path("supportedGenerationMethods")) {
+                    generates |= "generateContent".equals(method.asText());
+                }
+                if (generates && !name.isBlank()) {
+                    names.add(name);
+                }
+            }
+            return names.isEmpty() ? "(none reported)" : String.join(", ", names);
+        } catch (IOException | RuntimeException e) {
+            return "(could not list models: " + e.getClass().getSimpleName() + ")";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "(interrupted while listing models)";
         }
     }
 

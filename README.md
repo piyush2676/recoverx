@@ -98,8 +98,9 @@ setx ANTHROPIC_API_KEY "..."   # console.anthropic.com
 
 Gemini is used when both are set. Without either, the run says so and still writes
 the rules-only report - a missing key should not cost you the baseline numbers.
-Override the model with `--model=`; defaults are `gemini-2.0-flash` and
-`claude-opus-5`.
+Override the model with `--model=`; defaults are `gemini-3.5-flash-lite` and
+`claude-opus-5`. If a model id has been retired, the run lists the ones your key can
+actually reach.
 
 Output:
 
@@ -164,22 +165,49 @@ and prove nothing. So the generator draws ~20% of rows from **novel error forms*
 and `RuleBasedClassifier` is written against the documented forms only - exactly the
 situation a merchant is in when a new acquirer is onboarded.
 
-Baseline, seed 42:
+Seed 42, model arm on `gemini-3.5-flash-lite` (free tier, 20 API calls):
 
-| Arm | Slice | n | Accuracy | Coverage |
-|---|---|---:|---:|---:|
-| rules | all | 500 | 89.4% | 89.4% |
-| rules | documented | 396 | 100.0% | 100.0% |
-| rules | **novel** | 104 | **49.0%** | 49.0% |
+| Slice | n | rules | gemini |
+|---|---:|---:|---:|
+| documented | 396 | **100.0%** | 92.7% |
+| **novel** | 104 | 49.0% | **100.0%** |
+| all | 500 | 89.4% | **94.2%** |
 
-The rule table has perfect precision on the novel slice and terrible recall: when it
-does not recognise a string it declines rather than guessing, which is the safe
-behaviour. It also fails to recognise **8 risk-blocked declines** written in wording
-it has never seen - all 8 landed in the human queue rather than being mislabelled as
-retryable, so zero dangerous misses, but zero automation either.
+**The answer is not "the model wins."** Each arm is perfect where the other is weak,
+and that is the finding.
 
-That gap - 49% accuracy and 8 unrecognised compliance stops - is the headroom the LLM
-arm has to prove. Run `--classify` with credentials set to fill in its row.
+The model read **every unseen wording correctly**. All 53 rows the rule table
+declined, it answered - and all 53 were right. Escalations went from 53 to zero, and
+the 8 risk-blocked declines the regex could not recognise were all classified
+correctly.
+
+But it is **worse on the rows the regex was written for**, and the reason is a line in
+our own prompt. The 29 documented-slice errors:
+
+```
+13  INVALID_VPA     -> RISK_BLOCKED
+12  NETWORK_TIMEOUT -> ISSUER_DOWN
+ 4  ISSUER_DOWN     -> NETWORK_TIMEOUT
+```
+
+`ClassifierPrompt` line 42 says *"when the text could be read two ways and one reading
+is RISK_BLOCKED, choose RISK_BLOCKED."* The error string is
+`U16 - risk threshold exceeded for VPA`. It contains the words "risk threshold", the
+model followed the instruction, stopped the money, and cost **Rs 5,576** of recoverable
+VPA revenue.
+
+That is not a bug. It is a safety instruction with a measurable price, and both halves
+belong in the report: 13 transactions that a compliance officer would rather see
+stopped, and the rupees that decision cost.
+
+### What this actually argues for
+
+A hybrid, not a replacement. The regex is perfect on what it was written for and blind
+past it; the model is the reverse. `RuleBasedClassifier` already returns 0.95
+confidence on an exact vendor-code match and 0.75 on a keyword, so the routing
+threshold exists: take the code match when there is one, send everything else to the
+model. Neither arm alone is the right production answer, and the comparison is what
+makes that visible.
 
 Reporting rules, enforced by `ClassificationScorer`:
 
@@ -192,7 +220,9 @@ Reporting rules, enforced by `ClassificationScorer`:
   zero) versus sent to a human (safe). Averaged into a macro F1 they would vanish.
 - **Transport failures are counted apart from validator rejections.** An expired API
   key is not the model producing bad output, and a report that conflates them is
-  lying about which part broke.
+  lying about which part broke. This earned its keep: the first Gemini run used a
+  model id Google had retired, and the report said `0 rejected by the validator, 500
+  that never reached the validator` rather than blaming the model for 500 failures.
 
 ---
 
@@ -295,16 +325,173 @@ Three columns, always: **naive baseline** (retry everything once immediately),
 to it is not a result.
 
 ---
+---
 
-## Failures to demonstrate
+## Phase 4 result: measured recovery
 
-Two, on purpose, on video:
+The full cycle - decide, attempt, learn the outcome, decide again, up to three
+attempts each - with `SimulatedExecutor` resolving every attempt against the hidden
+truth. Against Razorpay test mode you can prove the plumbing works but not that a
+rupee came back, because a test-mode payment link is never really paid. Only here can
+recovered value be computed rather than claimed.
 
-1. **Crash mid-batch.** Kill the process during execution, restart, show the
-   idempotency keys prevent a double charge on resume.
-2. **Model returns garbage.** Feed the classifier a malformed response; the
-   schema validator rejects it and the transaction falls into the human queue —
-   it never falls through to a charge.
+An attempt succeeds when all four hold: the decline was recoverable at all, it was
+scheduled at or after the moment recovery became possible, it used a rail that can
+work, and it is the n-th qualifying attempt where n is what the truth says it takes.
+
+**One assumption favours the agent and is stated rather than buried:** a payment link
+is treated as satisfying any required rail, because the customer chooses how to pay
+when they open it. It is the single most load-bearing modelling choice in the headline
+figure.
+
+Zero compliance violations is the gates working, not luck: of the 29 risk-blocked
+declines, the rule arm classified and hard-stopped 21 and escalated the 8 it could not
+read; the model arm classified all 29. None was ever presented to the gateway.
+
+---
+
+## Phase 5: the comparison
+
+Every arm runs over the same batch, through the same execution loop, ledger and
+simulator. The only thing that differs between rows is the strategy - otherwise a
+difference in the report could be a difference in the harness.
+
+| Arm | Attempts | Recoveries | Net | % of ceiling |
+|---|---:|---:|---:|---:|
+| `naive-immediate` | 500 | 0 | Rs 0 | 0.0% |
+| `naive-hourly` | 500 | 74 | Rs 91,855 | 24.0% |
+| `recoverx-rules` | 730 | 260 | Rs 329,665 | 86.3% |
+| `recoverx-llm` | 767 | 275 | Rs 339,897 | **89.0%** |
+| `oracle` | 341 | 306 | Rs 382,063 | 100.0% |
+
+**Harness self-check: PASS** - the oracle collects exactly the ceiling. If it could
+not, `OracleDecisionSource` and `SimulatedExecutor` would disagree about what a
+successful attempt is, and every other row would be wrong in a way no amount of
+staring at the policy engine would reveal. It is asserted in the test suite too.
+
+### The baseline is two baselines
+
+`naive-immediate` re-presents the instant a payment fails and recovers nothing -
+transient declines need minutes to clear. Quoting it alone would have flattered this
+project enormously.
+
+`naive-hourly` waits an hour, which is what a merchant's retry cron actually does. It
+is a far stronger opponent: it collects **100% of the network-timeout ceiling** while
+knowing nothing at all.
+
+### What each arm costs to get its number
+
+| Arm | Compliance violations | Double charges | Wasted attempts | Escalated |
+|---|---:|---:|---:|---:|
+| `naive-immediate` | 29 | 0 | 194 | 0 |
+| `naive-hourly` | 29 | 0 | 194 | 0 |
+| `recoverx-rules` | **0** | 0 | 348 | 53 |
+| `recoverx-llm` | **0** | 0 | 374 | 0 |
+| `oracle` | 0 | 0 | 0 | 0 |
+
+Both baselines re-present all 29 risk-blocked declines, because a merchant with no
+classifier cannot know which ones they are. That is not a bug in the baseline - it is
+what having no classifier costs, and a test asserts it stays exactly 29.
+
+### Where the money comes from
+
+| Decline | Ceiling | `naive-hourly` | `recoverx-rules` | `recoverx-llm` |
+|---|---:|---:|---:|---:|
+| INSUFFICIENT_FUNDS | Rs 112,952 | Rs 0 | Rs 76,154 | Rs 84,564 |
+| AUTHENTICATION_FAILED | Rs 66,136 | Rs 22,103 | Rs 60,651 | **Rs 66,136** |
+| ISSUER_DOWN | Rs 62,027 | Rs 6,882 | **Rs 62,027** | Rs 59,665 |
+| NETWORK_TIMEOUT | Rs 61,959 | **Rs 61,959** | Rs 57,919 | **Rs 61,959** |
+| LIMIT_EXCEEDED | Rs 34,273 | Rs 911 | Rs 34,034 | **Rs 34,273** |
+| EXPIRED_CARD | Rs 29,716 | Rs 0 | Rs 24,848 | Rs 24,848 |
+| INVALID_VPA | Rs 15,001 | Rs 0 | **Rs 14,112** | Rs 8,536 |
+
+This table is the argument. An hourly cron already owns the timeouts - that is the
+part of the problem that does not need an agent. It gets **nothing** on insufficient
+funds, expired cards or invalid handles, because those need waiting for a payday or
+moving rails. That is the part that does.
+
+The model arm collects the entire ceiling on three buckets. It loses `INVALID_VPA` to
+the regex for the prompt reason described in the phase 2 section.
+
+### Both denominators, side by side
+
+| Arm | vs ceiling (honest) | vs total failed (inflated) |
+|---|---:|---:|
+| `naive-hourly` | 24.0% | 15.2% |
+| `recoverx-rules` | 86.3% | 54.6% |
+| `recoverx-llm` | 89.0% | 56.3% |
+| `oracle` | 100.0% | 63.3% |
+
+Recovery quoted against total failed value is inflated with money nobody could have
+collected. Both columns are printed so the choice is visible rather than made quietly
+in a slide.
+
+---
+
+## Three layers against a double charge
+
+| Layer | Mechanism | When it matters |
+|---|---|---|
+| Policy gate 5 | refuses to act while an attempt is in flight | any resume |
+| `IdempotencyGuard` | returns the recorded outcome instead of calling out | ledger has the outcome |
+| Gateway `reference_id` | remote rejects a key it has already seen | process died before recording |
+
+### What the chaos tests actually showed
+
+```bash
+# crash in the dangerous window: gateway called, process dies before recording
+java -jar target/recoverx-0.1.0.jar --execute --crash-before-outcome=150
+java -jar target/recoverx-0.1.0.jar --execute --resume
+```
+
+`--crash-after=N` and `--crash-before-outcome=N` call `Runtime.halt` - a real kill, no
+shutdown hooks, no flush.
+
+Result: **zero double charges**, but not via the layer that was expected. The policy's
+in-flight gate stopped re-presentation before the idempotency guard or the gateway
+check was ever reached. Both inner layers reported zero activations.
+
+That is defence in depth working from the outside in, and it is reported as what it
+is. The inner two layers are proven by direct unit tests instead - an untested layer
+that is never reached in practice is a layer nobody knows is broken.
+
+### The gap that found
+
+Blocking re-presentation left that transaction **stuck forever**: a decision row with
+no outcome, an in-flight gate correctly refusing to act, and nothing to resolve it.
+`--resume` now reconciles first - it asks the gateway what became of each in-flight
+attempt and writes the missing outcome. A read, not a retry.
+
+---
+
+## The dashboard
+
+`java -jar target/recoverx-0.1.0.jar` with no batch flag serves the dashboard at
+<http://localhost:8080> (`--server.port=` to move it).
+
+It shows the headline figures, each arm's recovery against the ceiling, where the
+money came from by decline type, the full audit trail with the model's own
+justification and the gate that allowed or blocked each action, and the exception
+queue grouped by reason.
+
+**It computes nothing.** Every figure is read from `eval/out/comparison.json` and
+`eval/out/arms/<arm>/ledger.jsonl` - the same artifacts a reviewer can open in a text
+editor. A dashboard that recalculated its own numbers would be a second implementation
+to keep honest.
+
+Chart colours are a two-slot categorical palette, validated for colourblind separation
+and contrast against both the light and dark surfaces before any CSS was written. Both
+themes are selected, not an automatic flip; the toggle is in the header.
+
+---
+
+## Failures to demonstrate on video
+
+1. **Crash mid-batch** - `--crash-before-outcome=150`, then `--resume`. Show the
+   in-flight gate refusing, the orphan reconciled, zero double charges.
+2. **Model returns garbage** - the schema validator rejects an unknown bucket, an
+   out-of-range confidence, a hallucinated transaction id or an empty justification,
+   and the transaction falls into the human queue. It never falls through to a charge.
 
 ---
 

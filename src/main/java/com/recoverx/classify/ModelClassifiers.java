@@ -21,8 +21,14 @@ import java.util.Optional;
  */
 public final class ModelClassifiers {
 
-    /** Free tier at aistudio.google.com. Override with --model= if your key reaches a different one. */
-    public static final String DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+    /**
+     * Free tier at aistudio.google.com. Cheap and fast, which is the right shape for
+     * bucketing a decline; pass --model=gemini-3.7-flash for the stronger tier.
+     *
+     * <p>Model ids go stale - gemini-2.0-flash was the default here until Google shut
+     * it down. A 404 now lists what the key can actually reach rather than guessing.
+     */
+    public static final String DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 
     public static final String DEFAULT_CLAUDE_MODEL = "claude-opus-5";
 
