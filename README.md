@@ -53,6 +53,11 @@ ledger.Ledger                         <- append-only audit trail
 eval/                                 <- oracle ceiling vs baseline vs agent
 ```
 
+Two providers are wired - Gemini and Claude - selected by whichever key is present.
+Both drive the identical prompt through the identical validator and cache, so
+switching provider changes the model and nothing else. That is the only way the arms
+stay comparable.
+
 **The split is the design.** The model classifies and explains; it never moves
 money. A prompt can be argued out of a stopping rule. An `if` statement cannot.
 Every rupee-moving branch is ordinary Java you can read in one sitting.
@@ -84,9 +89,17 @@ java -jar target/recoverx-0.1.0.jar --compare --data=data --out=eval/out
 java -jar target/recoverx-0.1.0.jar --server.port=8081
 ```
 
-The LLM arm needs credentials (`ANTHROPIC_API_KEY`, or `ant auth login`). Without
-them the run says so and still writes the rules-only report - a missing key should
-not cost you the baseline numbers.
+The model arm needs credentials from either provider:
+
+```bash
+setx GEMINI_API_KEY    "..."   # free tier at aistudio.google.com
+setx ANTHROPIC_API_KEY "..."   # console.anthropic.com
+```
+
+Gemini is used when both are set. Without either, the run says so and still writes
+the rules-only report - a missing key should not cost you the baseline numbers.
+Override the model with `--model=`; defaults are `gemini-2.0-flash` and
+`claude-opus-5`.
 
 Output:
 

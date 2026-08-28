@@ -38,49 +38,11 @@ import java.util.Map;
  * </ol>
  *
  * <p>Transactions are sent in batches with a cached system prompt, so the taxonomy is
- * billed once per batch rather than once per transaction.
+ * billed once per batch rather than once per transaction. The prompt itself lives in
+ * {@link ClassifierPrompt} and is shared verbatim with every other provider, so a
+ * provider comparison measures the model and not the wording.
  */
 public class LlmClassifier implements FailureClassifier {
-
-    /** Bump when the prompt changes, so cached verdicts from the old prompt miss. */
-    private static final String PROMPT_VERSION = "v1";
-
-    private static final int BATCH_SIZE = 25;
-
-    private static final String SYSTEM_PROMPT = """
-            You classify failed Indian online payments for a merchant's revenue recovery system.
-
-            For each transaction you are given the gateway's raw error text, its error code, the
-            payment method, and some context about the customer. Assign exactly one bucket:
-
-            INSUFFICIENT_FUNDS     - the payer did not have the money at that moment
-            ISSUER_DOWN            - the payer's bank or its switch was unavailable
-            EXPIRED_CARD           - the card or its network token is past validity
-            AUTHENTICATION_FAILED  - the payer abandoned or failed 3DS / OTP / a UPI collect
-            NETWORK_TIMEOUT        - no timely response; the payment never reached a decision
-            INVALID_VPA            - the UPI handle does not resolve to a real account
-            LIMIT_EXCEEDED         - a per-transaction or daily ceiling was breached
-            RISK_BLOCKED           - a fraud, sanctions, velocity or compliance stop
-
-            Rules:
-            - The error text may come from an acquirer you have never seen, may use raw ISO 8583
-              fields, or may be written informally. Read it for meaning; do not pattern-match codes.
-            - When the text could be read two ways and one reading is RISK_BLOCKED, choose
-              RISK_BLOCKED. A wrong RISK_BLOCKED costs one missed recovery. A missed one is a
-              compliance breach.
-            - Do not confuse ISSUER_DOWN with NETWORK_TIMEOUT. ISSUER_DOWN means the bank itself
-              was unavailable. NETWORK_TIMEOUT means a response never arrived in time.
-            - confidence is your own calibrated probability that the bucket is correct. Use the
-              full range. Low confidence on genuinely ambiguous text is correct behaviour, not a
-              failure - those transactions get reviewed by a person.
-            - justification is one sentence, under 200 characters, quoting the part of the error
-              text that decided it. It is written into a financial audit log that humans read.
-
-            Output format: one JSON object per line, no markdown fence, no preamble, nothing else.
-            Emit exactly one line for every transaction id given, in the order given.
-
-            {"txn_id":"<id>","reason":"<BUCKET>","confidence":<0.0-1.0>,"justification":"<one sentence>"}
-            """;
 
     private final AnthropicClient client;
     private final String model;
@@ -128,7 +90,7 @@ public class LlmClassifier implements FailureClassifier {
         List<FailedTransaction.AgentView> pending = new ArrayList<>();
 
         for (FailedTransaction.AgentView txn : transactions) {
-            String key = ClassificationCache.key(PROMPT_VERSION, txn);
+            String key = ClassificationCache.key(ClassifierPrompt.VERSION, txn);
             if (cache.has(key)) {
                 results.put(txn.txnId(), cache.get(key));
                 cacheHits++;
@@ -137,9 +99,9 @@ public class LlmClassifier implements FailureClassifier {
             }
         }
 
-        for (int start = 0; start < pending.size(); start += BATCH_SIZE) {
+        for (int start = 0; start < pending.size(); start += ClassifierPrompt.BATCH_SIZE) {
             List<FailedTransaction.AgentView> batch =
-                    pending.subList(start, Math.min(start + BATCH_SIZE, pending.size()));
+                    pending.subList(start, Math.min(start + ClassifierPrompt.BATCH_SIZE, pending.size()));
             int failuresBefore = transportFailures;
             Map<String, Classification> batchResults = classifyBatch(batch);
             results.putAll(batchResults);
@@ -149,7 +111,7 @@ public class LlmClassifier implements FailureClassifier {
             }
             persist(batch, batchResults);
             System.out.printf("  classified %d/%d%n",
-                    Math.min(start + BATCH_SIZE, pending.size()), pending.size());
+                    Math.min(start + ClassifierPrompt.BATCH_SIZE, pending.size()), pending.size());
         }
         return results;
     }
@@ -202,10 +164,10 @@ public class LlmClassifier implements FailureClassifier {
                             .effort(OutputConfig.Effort.LOW)
                             .build())
                     .systemOfTextBlockParams(List.of(TextBlockParam.builder()
-                            .text(SYSTEM_PROMPT)
+                            .text(ClassifierPrompt.SYSTEM)
                             .cacheControl(CacheControlEphemeral.builder().build())
                             .build()))
-                    .addUserMessage(renderBatch(batch))
+                    .addUserMessage(ClassifierPrompt.renderBatch(batch))
                     .build();
 
             Message response = client.messages().create(params);
@@ -255,28 +217,11 @@ public class LlmClassifier implements FailureClassifier {
                 continue;
             }
             try {
-                cache.put(ClassificationCache.key(PROMPT_VERSION, txn), classification);
+                cache.put(ClassificationCache.key(ClassifierPrompt.VERSION, txn), classification);
             } catch (IOException e) {
                 System.err.println("  cache write failed for " + txn.txnId() + ": " + e.getMessage());
             }
         }
-    }
-
-    private String renderBatch(List<FailedTransaction.AgentView> batch) {
-        StringBuilder sb = new StringBuilder("Classify these ")
-                .append(batch.size()).append(" failed payments.\n\n");
-        for (FailedTransaction.AgentView txn : batch) {
-            sb.append("txn_id: ").append(txn.txnId()).append('\n')
-                    .append("method: ").append(txn.method()).append('\n')
-                    .append("acquirer: ").append(txn.acquirer()).append('\n')
-                    .append("error_code: ").append(txn.errorCode()).append('\n')
-                    .append("error_text: ").append(txn.rawGatewayError()).append('\n')
-                    .append("amount_inr: ").append(txn.amountPaise() / 100.0).append('\n')
-                    .append("customer_prior_failures_30d: ").append(txn.customer().priorFailures30d()).append('\n')
-                    .append("customer_has_saved_card: ").append(txn.customer().hasSavedCard()).append('\n')
-                    .append('\n');
-        }
-        return sb.toString();
     }
 
     private String collectText(Message response) {

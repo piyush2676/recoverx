@@ -27,8 +27,6 @@ import java.util.function.Predicate;
 @Component
 public class ClassifierRunner implements CommandLineRunner {
 
-    private static final String DEFAULT_MODEL = "claude-opus-5";
-
     @Override
     public void run(String... args) throws Exception {
         if (!Arrays.asList(args).contains("--classify")) {
@@ -37,7 +35,7 @@ public class ClassifierRunner implements CommandLineRunner {
 
         Path dataDir = argPath(args, "--data=", "data");
         Path outDir = argPath(args, "--out=", "eval/out");
-        String model = argValue(args, "--model=", DEFAULT_MODEL);
+        String model = argValue(args, "--model=", null);
 
         DatasetLoader loader = new DatasetLoader();
         List<FailedTransaction.AgentView> transactions = loader.loadTransactions(dataDir);
@@ -60,28 +58,23 @@ public class ClassifierRunner implements CommandLineRunner {
                 .append(" rows in ").append(ruleMillis).append(" ms, zero cost.\n");
 
         // ---- arm 2: llm ----
-        if (LlmClassifier.credentialsAvailable()) {
-            System.out.println("classifying with " + model + " ...");
-            LlmClassifier llm = new LlmClassifier(model, outDir.resolve("llm_cache.jsonl"));
-            long llmStart = System.nanoTime();
-            Map<String, Classification> llmResults = llm.classifyAll(transactions);
-            long llmSeconds = (System.nanoTime() - llmStart) / 1_000_000_000;
-            allMetrics.addAll(scoreAllSlices(llm.name(), transactions, truth, llmResults));
-            notes.append("- `").append(llm.name()).append("`: ").append(transactions.size())
-                    .append(" rows in ").append(llmSeconds).append(" s across ")
-                    .append(llm.apiCalls()).append(" API calls; ")
-                    .append(llm.cacheHits()).append(" served from cache; ")
-                    .append(llm.rejections()).append(" rejected by the validator; ")
-                    .append(llm.transportFailures()).append(" never reached the validator.\n");
-            if (llm.firstError() != null) {
-                notes.append("- First transport error: `").append(llm.firstError()).append("`\n");
-                System.out.println("LLM arm hit transport errors. First: " + llm.firstError());
+        var modelArm = com.recoverx.classify.ModelClassifiers.run(transactions, model,
+                outDir.resolve("llm_cache.jsonl"));
+        if (modelArm.isPresent()) {
+            var arm = modelArm.get();
+            allMetrics.addAll(scoreAllSlices(arm.name(), transactions, truth, arm.verdicts()));
+            notes.append("- `").append(arm.name()).append("`: ").append(transactions.size())
+                    .append(" rows across ").append(arm.apiCalls()).append(" API calls (")
+                    .append(arm.cacheHits()).append(" from cache, ").append(arm.rejections())
+                    .append(" rejected by the validator, ").append(arm.transportFailures())
+                    .append(" never reached it).\n");
+            if (arm.firstError() != null) {
+                notes.append("- First transport error: `").append(arm.firstError()).append("`\n");
             }
         } else {
-            String skip = "- LLM arm skipped: no Anthropic credentials resolved. "
-                    + "Set ANTHROPIC_API_KEY (or run `ant auth login`) and re-run to populate it.\n";
-            notes.append(skip);
-            System.out.println("skipping LLM arm - no credentials. Rules-only report will still be written.");
+            notes.append("- Model arm skipped: no credentials. Set `GEMINI_API_KEY` "
+                    + "(free tier at aistudio.google.com) or `ANTHROPIC_API_KEY` and re-run.\n");
+            System.out.println("skipping the model arm - no credentials. Rules-only report will still be written.");
         }
 
         Path reportPath = outDir.resolve("classification_report.md");

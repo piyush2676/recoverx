@@ -32,8 +32,6 @@ import java.util.Map;
 @Component
 public class ComparisonRunner implements CommandLineRunner {
 
-    private static final String DEFAULT_MODEL = "claude-opus-5";
-
     @Override
     public void run(String... args) throws Exception {
         List<String> argList = Arrays.asList(args);
@@ -43,7 +41,7 @@ public class ComparisonRunner implements CommandLineRunner {
 
         Path dataDir = pathArg(args, "--data=", "data");
         Path outDir = pathArg(args, "--out=", "eval/out");
-        String model = stringArg(args, "--model=", DEFAULT_MODEL);
+        String model = stringArg(args, "--model=", null);
 
         DatasetLoader loader = new DatasetLoader();
         List<FailedTransaction.AgentView> transactions = loader.loadTransactions(dataDir);
@@ -67,18 +65,24 @@ public class ComparisonRunner implements CommandLineRunner {
         results.add(cycle.run(new PolicyDecisionSource(config, ruleVerdicts, "recoverx-rules"),
                 arms.resolve("recoverx-rules"), false, null));
 
-        if (LlmClassifier.credentialsAvailable()) {
-            System.out.println("classifying with " + model + " ...");
-            LlmClassifier llm = new LlmClassifier(model, outDir.resolve("llm_cache.jsonl"));
-            Map<String, Classification> llmVerdicts = llm.classifyAll(transactions);
-            results.add(cycle.run(new PolicyDecisionSource(config, llmVerdicts, "recoverx-llm"),
+        var modelArm = com.recoverx.classify.ModelClassifiers.run(transactions, model,
+                outDir.resolve("llm_cache.jsonl"));
+        if (modelArm.isPresent()) {
+            var arm = modelArm.get();
+            results.add(cycle.run(new PolicyDecisionSource(config, arm.verdicts(), "recoverx-llm"),
                     arms.resolve("recoverx-llm"), false, null));
-            notes.add("`recoverx-llm` used `" + model + "`, " + llm.apiCalls() + " API calls, "
-                    + llm.rejections() + " responses rejected by the validator.");
+            notes.add("`recoverx-llm` used `" + arm.name() + "`: " + arm.apiCalls() + " API calls, "
+                    + arm.cacheHits() + " served from cache, " + arm.rejections()
+                    + " responses rejected by the validator, " + arm.transportFailures()
+                    + " that never reached the validator.");
+            if (arm.firstError() != null) {
+                notes.add("First transport error: `" + arm.firstError() + "`");
+            }
         } else {
-            notes.add("`recoverx-llm` was not run: no Anthropic credentials resolved. "
-                    + "Set `ANTHROPIC_API_KEY` and re-run to fill that row.");
-            System.out.println("skipping the LLM arm - no credentials");
+            notes.add("`recoverx-llm` was not run: no model credentials resolved. Set "
+                    + "`GEMINI_API_KEY` (free tier at aistudio.google.com) or `ANTHROPIC_API_KEY` "
+                    + "and re-run to fill that row.");
+            System.out.println("skipping the model arm - no credentials (set GEMINI_API_KEY or ANTHROPIC_API_KEY)");
         }
 
         ArmResult oracle = cycle.run(new OracleDecisionSource(truth), arms.resolve("oracle"), false, null);

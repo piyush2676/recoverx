@@ -200,3 +200,33 @@ in a way that inspecting the policy engine would never reveal. The check runs on
 Recovery against total failed value is inflated by money nobody could have collected -
 54.6% instead of 86.3%. Showing both makes the choice visible instead of something
 decided quietly when a slide is made.
+
+## Two model providers, one prompt
+
+Gemini and Claude are both wired, selected by whichever API key is present. The
+measured run uses Gemini's free tier; the Claude integration stays because it is
+written, tested, and costs nothing to keep.
+
+`ClassifierPrompt` holds the system prompt, the batch size, and the batch renderer,
+and both classifiers use it verbatim. If each carried its own copy, a wording drift in
+one would appear in the report as a capability difference and nothing would catch it.
+There is a test asserting the Gemini request carries exactly the shared prompt.
+
+The validator, the content-hash cache, and the scorer were already provider-agnostic,
+so adding a provider touched one new class and a factory rather than the pipeline.
+
+## Raw HTTP for Gemini too
+
+Same reasoning as the Razorpay executor: the REST contract is documented and stable,
+it adds no dependency, and there are no credentials in CI to integration-test a client
+library against. The key goes in the `x-goog-api-key` header rather than the `?key=`
+query parameter the docs also permit - a secret in a URL ends up in proxy logs and
+browser history.
+
+## Unreadable model output yields nothing, not an exception
+
+`extractText` returns an empty string when the response shape is unexpected, the
+candidate list is empty, or `finishReason` is anything but `STOP` - a truncated or
+safety-blocked completion included. The validator then declines every row in the batch
+and they go to a human. Throwing would have been louder; declining is correct, because
+the question "what did the model say" has no answer here.

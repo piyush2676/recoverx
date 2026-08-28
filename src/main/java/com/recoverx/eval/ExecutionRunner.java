@@ -49,7 +49,6 @@ public class ExecutionRunner implements CommandLineRunner {
 
     private static final Duration PICKUP_DELAY = Duration.ofMinutes(5);
     private static final Duration OUTCOME_DELAY = Duration.ofMinutes(1);
-    private static final String DEFAULT_MODEL = "claude-opus-5";
 
     @Override
     public void run(String... args) throws Exception {
@@ -60,7 +59,7 @@ public class ExecutionRunner implements CommandLineRunner {
 
         Path dataDir = pathArg(args, "--data=", "data");
         Path outDir = pathArg(args, "--out=", "eval/out");
-        String model = stringArg(args, "--model=", DEFAULT_MODEL);
+        String model = stringArg(args, "--model=", null);
         boolean useLlm = argList.contains("--llm");
         boolean resume = argList.contains("--resume");
         int crashAfter = Integer.parseInt(stringArg(args, "--crash-after=", "0"));
@@ -333,12 +332,13 @@ public class ExecutionRunner implements CommandLineRunner {
                                                  boolean useLlm,
                                                  String model,
                                                  Path outDir) throws IOException {
-        if (useLlm && LlmClassifier.credentialsAvailable()) {
-            System.out.println("classifying with " + model + " ...");
-            return new LlmClassifier(model, outDir.resolve("llm_cache.jsonl")).classifyAll(transactions);
-        }
         if (useLlm) {
-            System.out.println("--llm requested but no credentials resolved; using the rule baseline.");
+            var arm = com.recoverx.classify.ModelClassifiers.run(
+                    transactions, model, outDir.resolve("llm_cache.jsonl"));
+            if (arm.isPresent()) {
+                return arm.get().verdicts();
+            }
+            System.out.println("--llm requested but no model credentials resolved; using the rule baseline.");
         }
         FailureClassifier rules = new RuleBasedClassifier();
         Map<String, Classification> verdicts = new HashMap<>();
