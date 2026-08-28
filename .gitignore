@@ -1,0 +1,9 @@
+target/
+data/*.jsonl
+data/*.csv
+data/DATASET.md
+eval/out/
+.idea/
+*.iml
+.env
+.DS_Store

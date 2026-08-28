@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: recoverx
+
+server:
+  port: 8080
+
+recoverx:
+  # The complete safety envelope. DefaultRecoveryPolicy acts on these and nothing else.
+  policy:
+    max-attempts-per-txn: 3
+    max-age-days: 7
+    # Insufficient funds only: long enough to cover a full salary cycle.
+    payday-window-days: 35
+    min-classifier-confidence: 0.70
+    payment-link-cost-paise: 25
+    retry-cost-paise: 0
+  razorpay:
+    # Test-mode keys only. Never commit live keys.
+    key-id: ${RAZORPAY_KEY_ID:}
+    key-secret: ${RAZORPAY_KEY_SECRET:}
