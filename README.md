@@ -13,6 +13,10 @@ executes it against Razorpay test mode, and writes every decision to an
 append-only ledger. It reports rupees actually recovered against an oracle
 ceiling — not attempts made.
 
+> **Submitting or reviewing this?** [`SUBMISSION.md`](SUBMISSION.md) is the
+> self-contained write-up: the problem, every component, the measured results, and
+> what the project is *not*. Start there.
+
 ---
 
 ## The bar this repo is aimed at
