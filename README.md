@@ -15,13 +15,16 @@ ceiling — not attempts made.
 
 ## Demo
 
-[![RecoverX — 24-second demo: the KPI row showing net recovered of Rs 3,39,897, 89.0% of the recoverable ceiling, zero compliance violations and zero double charges, above the per-arm recovery meters](docs/brag.jpg)](https://github.com/piyush2676/recoverx/raw/main/docs/brag.mp4)
+![RecoverX — the full 24-second demo: three gateway error strings that are one decline, the six-gate pipeline, then the KPI row showing Rs 3,39,897 net recovered, 89.0% of the recoverable ceiling, zero compliance violations and zero double charges](docs/brag.gif)
 
-<sup>**24 seconds — click the frame to play** ([direct link](docs/brag.mp4)). Every figure on
-screen is produced by a run, not a mockup: `--generate --count=500 --seed=42` followed by
-`--compare`. The error strings are verbatim from [`ErrorCatalog`](src/main/java/com/recoverx/datagen/ErrorCatalog.java),
+<sup>**The complete 24 seconds, playing above.** For 1080p with sound:
+[**docs/brag.mp4**](https://github.com/piyush2676/recoverx/raw/main/docs/brag.mp4) (1.7 MB).
+GitHub strips `<video>` from rendered Markdown, so a file in a repository cannot be an inline
+player — the README plays the silent GIF and links the original. Every figure on screen is produced
+by a run, not a mockup: `--generate --count=500 --seed=42` followed by `--compare`. The error
+strings are verbatim from [`ErrorCatalog`](src/main/java/com/recoverx/datagen/ErrorCatalog.java),
 the six gates from [`DefaultRecoveryPolicy`](src/main/java/com/recoverx/policy/DefaultRecoveryPolicy.java),
-and the dashboard styling from [`static/index.html`](src/main/resources/static/index.html).</sup>
+and the styling from the dashboard's own [`index.html`](src/main/resources/static/index.html).</sup>
 
 ---
 
