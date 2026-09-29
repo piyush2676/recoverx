@@ -13,6 +13,18 @@ executes it against Razorpay test mode, and writes every decision to an
 append-only ledger. It reports rupees actually recovered against an oracle
 ceiling — not attempts made.
 
+## Demo
+
+[![RecoverX — 24-second demo: the KPI row showing net recovered of Rs 3,39,897, 89.0% of the recoverable ceiling, zero compliance violations and zero double charges, above the per-arm recovery meters](docs/brag.jpg)](https://github.com/piyush2676/recoverx/raw/main/docs/brag.mp4)
+
+<sup>**24 seconds — click the frame to play** ([direct link](docs/brag.mp4)). Every figure on
+screen is produced by a run, not a mockup: `--generate --count=500 --seed=42` followed by
+`--compare`. The error strings are verbatim from [`ErrorCatalog`](src/main/java/com/recoverx/datagen/ErrorCatalog.java),
+the six gates from [`DefaultRecoveryPolicy`](src/main/java/com/recoverx/policy/DefaultRecoveryPolicy.java),
+and the dashboard styling from [`static/index.html`](src/main/resources/static/index.html).</sup>
+
+---
+
 > **Submitting or reviewing this?** [`SUBMISSION.md`](SUBMISSION.md) is the
 > self-contained write-up: the problem, every component, the measured results, and
 > what the project is *not*. Start there.
